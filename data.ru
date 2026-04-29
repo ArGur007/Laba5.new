@@ -1,0 +1,6 @@
+type;id;experimentId;runId;name;description;ownerUsername;createdAt;updatedAt;param;value;unit;comment;operatorName
+EXPERIMENT;1;;;gvhjks;;SYSTEM;2026-04-18T11:49:17.445755900Z;2026-04-18T11:49:17.445755900Z;;;;;
+EXPERIMENT;2;;;vghjkl;,;SYSTEM;2026-04-18T11:49:25.228226400Z;2026-04-18T11:49:25.228226400Z;;;;;
+RUN;1;1;;fcfvgbhujikhuy;;SYSTEM;2026-04-18T11:49:41.542861600Z;;;;;;
+RUN;2;2;;fghbjmk;;SYSTEM;2026-04-18T11:49:56.566715100Z;;;;;;
+RESULT;1;;2;;;SYSTEM;2026-04-18T11:50:13.769852200Z;;PH;4.0;ml;;
