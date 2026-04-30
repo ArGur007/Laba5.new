@@ -19,30 +19,32 @@ import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 public class CsvStorage {
-
+    private static final Logger LOGGER = Logger.getLogger(CsvStorage.class.getName());
     private static final char SEPARATOR = ';';
+
+    // Константы с именами файлов
+    public static final String EXPERIMENTS_FILE = "data_experiments.csv";
+    public static final String RUNS_FILE = "data_runs.csv";
+    public static final String RESULTS_FILE = "data_results.csv";
 
     // ======================== СОХРАНЕНИЕ ========================
 
-    /**
-     * Сохраняет все данные в три CSV-файла:
-     * <basePath>_experiments.csv, <basePath>_runs.csv, <basePath>_results.csv
-     */
-    public void save(Path basePath,
-                     ExperimentManager experimentManager,
+    public void save(ExperimentManager experimentManager,
                      RunManager runManager,
                      RunResultManager resultManager) throws IOException {
-        saveEntities(basePath, "experiments", experimentManager.getAll(), Experiment.class);
-        saveEntities(basePath, "runs", runManager.getAll(), Run.class);
-        saveEntities(basePath, "results", resultManager.getAll(), RunResult.class);
+        saveEntities(EXPERIMENTS_FILE, experimentManager.getAll(), Experiment.class);
+        saveEntities(RUNS_FILE, runManager.getAll(), Run.class);
+        saveEntities(RESULTS_FILE, resultManager.getAll(), RunResult.class);
+        LOGGER.info("Данные сохранены");
     }
 
-    private <T> void saveEntities(Path basePath, String suffix, List<T> entities, Class<T> clazz) throws IOException {
-        Path filePath = Paths.get(basePath.toString().replace(".csv", "_" + suffix + ".csv"));
-        try (Writer writer = Files.newBufferedWriter(filePath)) {
+    private <T> void saveEntities(String filePath, List<T> entities, Class<T> clazz) throws IOException {
+        Path path = Paths.get(filePath);
+        try (Writer writer = Files.newBufferedWriter(path)) {
             StatefulBeanToCsv<T> beanToCsv = new StatefulBeanToCsvBuilder<T>(writer)
                     .withSeparator(SEPARATOR)
                     .build();
@@ -54,38 +56,39 @@ public class CsvStorage {
 
     // ======================== ЗАГРУЗКА ========================
 
-    /**
-     * Загружает данные из трёх CSV-файлов.
-     * Возвращает DataContainer с временными коллекциями.
-     * В случае любой ошибки (включая дубликаты ID, несуществующие ссылки) выбрасывает исключение.
-     */
-    public DataContainer load(Path basePath) throws IOException {
-        Path expPath = Paths.get(basePath.toString().replace(".csv", "_experiments.csv"));
-        Path runPath = Paths.get(basePath.toString().replace(".csv", "_runs.csv"));
-        Path resPath = Paths.get(basePath.toString().replace(".csv", "_results.csv"));
+    public DataContainer load() throws IOException {
+        Map<Long, Experiment> tempExperiments = loadEntities(EXPERIMENTS_FILE, Experiment.class);
+        Map<Long, Run> tempRuns = loadEntities(RUNS_FILE, Run.class);
+        Map<Long, RunResult> tempResults = loadEntities(RESULTS_FILE, RunResult.class);
 
-        Map<Long, Experiment> tempExperiments = loadEntities(expPath, Experiment.class);
-        Map<Long, Run> tempRuns = loadEntities(runPath, Run.class);
-        Map<Long, RunResult> tempResults = loadEntities(resPath, RunResult.class);
-
-        // Проверка ссылочной целостности
-        for (Run run : tempRuns.values()) {
-            if (!tempExperiments.containsKey(run.getExperimentId())) {
-                throw new IllegalArgumentException(
-                        "Run id=" + run.getId() + " ссылается на несуществующий Experiment id=" + run.getExperimentId());
-            }
-        }
-        for (RunResult result : tempResults.values()) {
-            if (!tempRuns.containsKey(result.getRunId())) {
-                throw new IllegalArgumentException(
-                        "RunResult id=" + result.getId() + " ссылается на несуществующий Run id=" + result.getRunId());
-            }
-        }
+        validateReferences(tempExperiments, tempRuns, tempResults);
 
         return new DataContainer(tempExperiments, tempRuns, tempResults);
     }
 
-    private <T> Map<Long, T> loadEntities(Path path, Class<T> clazz) throws IOException {
+    public boolean hasDataFiles() {
+        return Files.exists(Paths.get(EXPERIMENTS_FILE));
+    }
+
+    private void validateReferences(Map<Long, Experiment> experiments,
+                                    Map<Long, Run> runs,
+                                    Map<Long, RunResult> results) {
+        for (Run run : runs.values()) {
+            if (!experiments.containsKey(run.getExperimentId())) {
+                throw new IllegalArgumentException(
+                        "Run id=" + run.getId() + " ссылается на несуществующий Experiment id=" + run.getExperimentId());
+            }
+        }
+        for (RunResult result : results.values()) {
+            if (!runs.containsKey(result.getRunId())) {
+                throw new IllegalArgumentException(
+                        "RunResult id=" + result.getId() + " ссылается на несуществующий Run id=" + result.getRunId());
+            }
+        }
+    }
+
+    private <T> Map<Long, T> loadEntities(String filePath, Class<T> clazz) throws IOException {
+        Path path = Paths.get(filePath);
         if (!Files.exists(path)) {
             return new HashMap<>();
         }
@@ -97,7 +100,6 @@ public class CsvStorage {
                     .build()
                     .parse();
 
-            // Преобразуем список в Map по ID (предполагается, что у класса есть метод getId)
             return list.stream().collect(Collectors.toMap(
                     entity -> {
                         try {
@@ -108,11 +110,9 @@ public class CsvStorage {
                     },
                     entity -> entity,
                     (existing, replacement) -> {
-                        throw new IllegalArgumentException("Дубликат ID в файле: " + path);
+                        throw new IllegalArgumentException("Дубликат ID в файле: " + filePath);
                     }
             ));
-        } catch (Exception e) {
-            throw new IOException("Ошибка чтения файла " + path + ": " + e.getMessage(), e);
         }
     }
 
@@ -128,6 +128,10 @@ public class CsvStorage {
             this.experiments = experiments;
             this.runs = runs;
             this.results = results;
+        }
+
+        public boolean isEmpty() {
+            return experiments.isEmpty() && runs.isEmpty() && results.isEmpty();
         }
     }
 }

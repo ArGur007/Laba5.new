@@ -5,9 +5,6 @@ import ru.laba5.service.RunManager;
 import ru.laba5.service.RunResultManager;
 import ru.laba5.storage.CsvStorage;
 
-import java.nio.file.AccessDeniedException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 
 public class LoadCommand implements Command {
@@ -28,25 +25,26 @@ public class LoadCommand implements Command {
 
     @Override
     public void execute(List<String> args) {
-        if (args.isEmpty()) {
-            System.out.println("Ошибка: укажите путь к файлу. Пример: load data.csv");
-            return;
-        }
-        Path path = Paths.get(args.get(0));
         try {
-            CsvStorage.DataContainer data = storage.load(path);
+            CsvStorage.DataContainer data = storage.load();
+
             experimentManager.clear();
             runManager.clear();
             resultManager.clear();
+
             data.experiments.values().forEach(experimentManager::add);
             data.runs.values().forEach(runManager::add);
             data.results.values().forEach(resultManager::add);
+
             experimentManager.syncIdGenerator();
             runManager.syncIdGenerator();
             resultManager.syncIdGenerator();
-            System.out.println("Данные загружены из " + path.toAbsolutePath());
-        } catch (AccessDeniedException e) {
-            System.out.println("Ошибка загрузки: нет доступа для чтения файла " + path);
+
+            System.out.println("Данные загружены из файлов:");
+            System.out.println("Экспериментов: " + data.experiments.size());
+            System.out.println("Запусков: " + data.runs.size());
+            System.out.println("Результатов: " + data.results.size());
+
         } catch (Exception e) {
             System.out.println("Ошибка загрузки: " + e.getMessage());
         }
