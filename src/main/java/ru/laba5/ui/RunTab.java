@@ -1,6 +1,5 @@
 package ru.laba5.ui;
 
-import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
@@ -40,18 +39,12 @@ public class RunTab extends VBox {
         setSpacing(10);
         setPadding(new Insets(10));
 
-        // Фильтр
         HBox filterBox = createFilterBox();
-
-        // Таблица
         tableView = new TableView<>();
         setupTableColumns();
-
-        // Кнопки
         HBox buttonBar = createButtonBar();
 
         getChildren().addAll(filterBox, tableView, buttonBar);
-
         refreshFilters();
         refreshData();
     }
@@ -80,11 +73,11 @@ public class RunTab extends VBox {
         idCol.setCellValueFactory(new PropertyValueFactory<>("id"));
         idCol.setPrefWidth(60);
 
-        TableColumn<Run, Long> expIdCol = new TableColumn<>("Exp ID");
+        TableColumn<Run, Long> expIdCol = new TableColumn<>("ID эксперимента");
         expIdCol.setCellValueFactory(new PropertyValueFactory<>("experimentId"));
-        expIdCol.setPrefWidth(70);
+        expIdCol.setPrefWidth(100);
 
-        TableColumn<Run, String> nameCol = new TableColumn<>("Название Run");
+        TableColumn<Run, String> nameCol = new TableColumn<>("Название");
         nameCol.setCellValueFactory(new PropertyValueFactory<>("name"));
         nameCol.setPrefWidth(250);
 
@@ -92,12 +85,7 @@ public class RunTab extends VBox {
         operatorCol.setCellValueFactory(new PropertyValueFactory<>("operatorName"));
         operatorCol.setPrefWidth(120);
 
-        TableColumn<Run, String> createdAtCol = new TableColumn<>("Создан");
-        createdAtCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(cellData.getValue().getCreatedAt().toString().substring(0, 19)));
-        createdAtCol.setPrefWidth(170);
-
-        tableView.getColumns().addAll(idCol, expIdCol, nameCol, operatorCol, createdAtCol);
+        tableView.getColumns().addAll(idCol, expIdCol, nameCol, operatorCol);
     }
 
     private HBox createButtonBar() {
@@ -109,16 +97,13 @@ public class RunTab extends VBox {
             DialogHelper.showInfo("Обновление", "Данные обновлены");
         });
 
-        Button addBtn = new Button("Добавить Run");
+        Button addBtn = new Button("Добавить запуск");
         addBtn.setOnAction(e -> showAddDialog());
-
-        Button showBtn = new Button("Детали");
-        showBtn.setOnAction(e -> showRunDetails());
 
         Button saveBtn = new Button("Сохранить");
         saveBtn.setOnAction(e -> MainApp.saveData());
 
-        return new HBox(10, refreshBtn, addBtn, showBtn, saveBtn);
+        return new HBox(10, refreshBtn, addBtn, saveBtn);
     }
 
     public void refreshFilters() {
@@ -162,11 +147,27 @@ public class RunTab extends VBox {
         }
 
         try {
-            Experiment experiment = askForExperiment();
-            String name = DialogHelper.showNonEmptyInputDialog(
-                    "Добавление Run",
-                    "Название Run для эксперимента #" + experiment.getId(),
+            Optional<Experiment> expResult = askForExperiment();
+            if (!expResult.isPresent()) {
+                return;
+            }
+
+            Experiment experiment = expResult.get();
+
+            Optional<String> nameResult = DialogHelper.showInputDialog(
+                    "Добавление запуска",
+                    "Название запуска для эксперимента #" + experiment.getId(),
                     "Название:");
+
+            if (!nameResult.isPresent()) {
+                return;
+            }
+
+            String name = nameResult.get().trim();
+            if (name.isEmpty()) {
+                DialogHelper.showError("Ошибка", "Название не может быть пустым");
+                return;
+            }
 
             long id = runManager.getNextId();
             Run run = new Run(id, experiment.getId(), name, currentUser);
@@ -176,78 +177,47 @@ public class RunTab extends VBox {
             refreshData();
             MainApp.saveData();
 
-            DialogHelper.showInfo("Успех", "Run создан с ID: " + id);
+            DialogHelper.showInfo("Успех", "Запуск создан с ID: " + id);
 
-        } catch (RuntimeException e) {
-            System.out.println("Операция отменена");
         } catch (Exception e) {
             DialogHelper.showError("Ошибка", e.getMessage());
         }
     }
 
-    private Experiment askForExperiment() {
-        while (true) {
-            Dialog<Experiment> dialog = new Dialog<>();
-            dialog.setTitle("Выбор эксперимента");
-            dialog.setHeaderText("Выберите эксперимент");
+    private Optional<Experiment> askForExperiment() {
+        Dialog<Experiment> dialog = new Dialog<>();
+        dialog.setTitle("Выбор эксперимента");
+        dialog.setHeaderText("Выберите эксперимент");
 
-            ButtonType okButton = new ButtonType("OK", ButtonBar.ButtonData.OK_DONE);
-            dialog.getDialogPane().getButtonTypes().addAll(okButton, ButtonType.CANCEL);
+        ButtonType okButton = new ButtonType("OK", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(okButton, ButtonType.CANCEL);
 
-            ComboBox<Experiment> expCombo = new ComboBox<>();
-            expCombo.getItems().addAll(experimentManager.getAll());
+        ComboBox<Experiment> expCombo = new ComboBox<>();
+        expCombo.getItems().addAll(experimentManager.getAll());
 
-            expCombo.setCellFactory(lv -> new ListCell<Experiment>() {
-                @Override
-                protected void updateItem(Experiment exp, boolean empty) {
-                    super.updateItem(exp, empty);
-                    setText(exp == null ? "" : exp.getId() + " - " + exp.getName());
-                }
-            });
-            expCombo.setButtonCell(new ListCell<Experiment>() {
-                @Override
-                protected void updateItem(Experiment exp, boolean empty) {
-                    super.updateItem(exp, empty);
-                    setText(exp == null ? "" : exp.getId() + " - " + exp.getName());
-                }
-            });
-
-            dialog.getDialogPane().setContent(expCombo);
-            dialog.setResultConverter(dialogButton -> dialogButton == okButton ? expCombo.getValue() : null);
-
-            Optional<Experiment> result = dialog.showAndWait();
-            if (result.isPresent()) {
-                return result.get();
+        expCombo.setCellFactory(lv -> new ListCell<Experiment>() {
+            @Override
+            protected void updateItem(Experiment exp, boolean empty) {
+                super.updateItem(exp, empty);
+                setText(exp == null ? "" : exp.getId() + " - " + exp.getName());
             }
+        });
+        expCombo.setButtonCell(new ListCell<Experiment>() {
+            @Override
+            protected void updateItem(Experiment exp, boolean empty) {
+                super.updateItem(exp, empty);
+                setText(exp == null ? "" : exp.getId() + " - " + exp.getName());
+            }
+        });
 
-            DialogHelper.showError("Ошибка", "Необходимо выбрать эксперимент");
-        }
-    }
+        dialog.getDialogPane().setContent(expCombo);
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == okButton) {
+                return expCombo.getValue();
+            }
+            return null;
+        });
 
-    private void showRunDetails() {
-        Run selected = tableView.getSelectionModel().getSelectedItem();
-        if (selected == null) {
-            DialogHelper.showError("Ошибка", "Выберите Run");
-            return;
-        }
-
-        int resultsCount = resultManager.getByRun(selected.getId()).size();
-
-        String details = String.format("""
-                Run #%d
-                Название: %s
-                Эксперимент ID: %d
-                Оператор: %s
-                Создан: %s
-                Результатов: %d
-                """,
-                selected.getId(),
-                selected.getName(),
-                selected.getExperimentId(),
-                selected.getOperatorName(),
-                selected.getCreatedAt().toString().substring(0, 19),
-                resultsCount);
-
-        DialogHelper.showInfo("Детали Run", details);
+        return dialog.showAndWait();
     }
 }

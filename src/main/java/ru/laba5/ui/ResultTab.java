@@ -11,6 +11,7 @@ import javafx.scene.layout.VBox;
 import ru.laba5.domain.MeasurementParam;
 import ru.laba5.domain.Run;
 import ru.laba5.domain.RunResult;
+import ru.laba5.domain.Units;
 import ru.laba5.service.ExperimentManager;
 import ru.laba5.service.RunManager;
 import ru.laba5.service.RunResultManager;
@@ -46,7 +47,6 @@ public class ResultTab extends VBox {
         HBox buttonBar = createButtonBar();
 
         getChildren().addAll(filterBox, tableView, buttonBar);
-
         refreshFilters();
         refreshData();
     }
@@ -55,9 +55,9 @@ public class ResultTab extends VBox {
         HBox filterBox = new HBox(10);
         filterBox.setPadding(new Insets(5));
 
-        Label filterLabel = new Label("Фильтр по Run:");
+        Label filterLabel = new Label("Фильтр по запуску:");
         runFilter = new ComboBox<>();
-        runFilter.setPromptText("Все Run");
+        runFilter.setPromptText("Все запуски");
         runFilter.setOnAction(e -> refreshData());
 
         Button clearFilterBtn = new Button("Очистить");
@@ -66,7 +66,7 @@ public class ResultTab extends VBox {
             refreshData();
         });
 
-        Button refreshRunsBtn = new Button("Обновить список Run");
+        Button refreshRunsBtn = new Button("Обновить список запусков");
         refreshRunsBtn.setOnAction(e -> refreshFilters());
 
         filterBox.getChildren().addAll(filterLabel, runFilter, clearFilterBtn, refreshRunsBtn);
@@ -80,9 +80,9 @@ public class ResultTab extends VBox {
         idCol.setCellValueFactory(new PropertyValueFactory<>("id"));
         idCol.setPrefWidth(60);
 
-        TableColumn<RunResult, Long> runIdCol = new TableColumn<>("Run ID");
+        TableColumn<RunResult, Long> runIdCol = new TableColumn<>("ID запуска");
         runIdCol.setCellValueFactory(new PropertyValueFactory<>("runId"));
-        runIdCol.setPrefWidth(70);
+        runIdCol.setPrefWidth(80);
 
         TableColumn<RunResult, String> paramCol = new TableColumn<>("Параметр");
         paramCol.setCellValueFactory(cellData ->
@@ -94,23 +94,15 @@ public class ResultTab extends VBox {
         valueCol.setPrefWidth(100);
 
         TableColumn<RunResult, String> unitCol = new TableColumn<>("Единицы");
-        unitCol.setCellValueFactory(new PropertyValueFactory<>("unit"));
-        unitCol.setPrefWidth(80);
+        unitCol.setCellValueFactory(cellData ->
+                new SimpleStringProperty(cellData.getValue().getUnit()));
+        unitCol.setPrefWidth(100);
 
         TableColumn<RunResult, String> commentCol = new TableColumn<>("Комментарий");
         commentCol.setCellValueFactory(new PropertyValueFactory<>("comment"));
-        commentCol.setPrefWidth(250);
+        commentCol.setPrefWidth(300);
 
-        TableColumn<RunResult, String> ownerCol = new TableColumn<>("Владелец");
-        ownerCol.setCellValueFactory(new PropertyValueFactory<>("ownerUsername"));
-        ownerCol.setPrefWidth(100);
-
-        TableColumn<RunResult, String> createdAtCol = new TableColumn<>("Создан");
-        createdAtCol.setCellValueFactory(cellData ->
-                new SimpleStringProperty(cellData.getValue().getCreatedAt().toString().substring(0, 19)));
-        createdAtCol.setPrefWidth(170);
-
-        tv.getColumns().addAll(idCol, runIdCol, paramCol, valueCol, unitCol, commentCol, ownerCol, createdAtCol);
+        tv.getColumns().addAll(idCol, runIdCol, paramCol, valueCol, unitCol, commentCol);
         return tv;
     }
 
@@ -168,33 +160,51 @@ public class ResultTab extends VBox {
 
     private void showAddDialog() {
         if (runManager.getAll().isEmpty()) {
-            DialogHelper.showError("Ошибка", "Сначала создайте Run");
+            DialogHelper.showError("Ошибка", "Сначала создайте запуск");
             return;
         }
 
         try {
-            Run run = askForRun();
-            MeasurementParam param = askForParam();
+            Optional<Run> runResult = askForRun();
+            if (!runResult.isPresent()) {
+                return;
+            }
 
-            double value = DialogHelper.showNumberInputDialog(
-                    "Добавление результата",
-                    "Значение для " + param.name(),
-                    "Значение:");
+            Run run = runResult.get();
 
-            String unit = DialogHelper.showNonEmptyInputDialog(
-                    "Добавление результата",
-                    "Единицы измерения для " + param.name(),
-                    "Единицы (pH, mg/L, mS/cm):");
+            Optional<MeasurementParam> paramResult = askForParam();
+            if (!paramResult.isPresent()) {
+                return;
+            }
+
+            MeasurementParam param = paramResult.get();
+
+            Optional<Double> valueResult = askForValue(param);
+            if (!valueResult.isPresent()) {
+                return;
+            }
+
+            double value = valueResult.get();
+
+            Optional<Units> unitResult = askForUnit();
+            if (!unitResult.isPresent()) {
+                return;
+            }
+
+            Units unit = unitResult.get();
 
             Optional<String> commentResult = DialogHelper.showInputDialog(
                     "Добавление результата",
-                    "Комментарий (необязательно)",
+                    "Введите комментарий (необязательно)",
                     "Комментарий:");
 
-            String comment = commentResult.orElse("");
+            String comment = "";
+            if (commentResult.isPresent()) {
+                comment = commentResult.get().trim();
+            }
 
             long id = resultManager.getNextId();
-            RunResult result = new RunResult(id, run.getId(), param, value, unit, comment, currentUser);
+            RunResult result = new RunResult(id, run.getId(), param, value, unit.name(), comment, currentUser);
             resultManager.add(result);
 
             refreshData();
@@ -203,58 +213,101 @@ public class ResultTab extends VBox {
 
             DialogHelper.showInfo("Успех", "Результат создан с ID: " + id);
 
-        } catch (RuntimeException e) {
-            System.out.println("Операция отменена");
         } catch (Exception e) {
             DialogHelper.showError("Ошибка", e.getMessage());
         }
     }
 
-    private Run askForRun() {
+    private Optional<Run> askForRun() {
+        Dialog<Run> dialog = new Dialog<>();
+        dialog.setTitle("Выбор запуска");
+        dialog.setHeaderText("Выберите запуск");
+
+        ButtonType okButton = new ButtonType("OK", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(okButton, ButtonType.CANCEL);
+
+        ComboBox<Run> runCombo = new ComboBox<>();
+        runCombo.getItems().addAll(runManager.getAll());
+
+        runCombo.setCellFactory(lv -> new ListCell<Run>() {
+            @Override
+            protected void updateItem(Run run, boolean empty) {
+                super.updateItem(run, empty);
+                setText(run == null ? "" : run.getId() + " - " + run.getName());
+            }
+        });
+        runCombo.setButtonCell(new ListCell<Run>() {
+            @Override
+            protected void updateItem(Run run, boolean empty) {
+                super.updateItem(run, empty);
+                setText(run == null ? "" : run.getId() + " - " + run.getName());
+            }
+        });
+
+        dialog.getDialogPane().setContent(runCombo);
+        dialog.setResultConverter(dialogButton -> {
+            if (dialogButton == okButton) {
+                return runCombo.getValue();
+            }
+            return null;
+        });
+
+        return dialog.showAndWait();
+    }
+
+    private Optional<MeasurementParam> askForParam() {
+        String[] params = {"PH", "CONDUCTIVITY", "NITRATE"};
+
+        ChoiceDialog<String> dialog = new ChoiceDialog<>(params[0], params);
+        dialog.setTitle("Выбор параметра");
+        dialog.setHeaderText("Выберите параметр измерения");
+        dialog.setContentText("Параметр:");
+
+        Optional<String> result = dialog.showAndWait();
+
+        if (result.isPresent()) {
+            return Optional.of(MeasurementParam.valueOf(result.get()));
+        }
+
+        return Optional.empty();
+    }
+
+    private Optional<Double> askForValue(MeasurementParam param) {
         while (true) {
-            Dialog<Run> dialog = new Dialog<>();
-            dialog.setTitle("Выбор Run");
-            dialog.setHeaderText("Выберите Run");
+            TextInputDialog dialog = new TextInputDialog();
+            dialog.setTitle("Ввод значения");
+            dialog.setHeaderText("Значение для " + param.name());
+            dialog.setContentText("Значение:");
 
-            ButtonType okButton = new ButtonType("OK", ButtonBar.ButtonData.OK_DONE);
-            dialog.getDialogPane().getButtonTypes().addAll(okButton, ButtonType.CANCEL);
+            Optional<String> result = dialog.showAndWait();
 
-            ComboBox<Run> runCombo = new ComboBox<>();
-            runCombo.getItems().addAll(runManager.getAll());
-
-            runCombo.setCellFactory(lv -> new ListCell<Run>() {
-                @Override
-                protected void updateItem(Run run, boolean empty) {
-                    super.updateItem(run, empty);
-                    setText(run == null ? "" : run.getId() + " - " + run.getName());
-                }
-            });
-            runCombo.setButtonCell(new ListCell<Run>() {
-                @Override
-                protected void updateItem(Run run, boolean empty) {
-                    super.updateItem(run, empty);
-                    setText(run == null ? "" : run.getId() + " - " + run.getName());
-                }
-            });
-
-            dialog.getDialogPane().setContent(runCombo);
-            dialog.setResultConverter(dialogButton -> dialogButton == okButton ? runCombo.getValue() : null);
-
-            Optional<Run> result = dialog.showAndWait();
-            if (result.isPresent()) {
-                return result.get();
+            if (!result.isPresent()) {
+                return Optional.empty();
             }
 
-            DialogHelper.showError("Ошибка", "Необходимо выбрать Run");
+            try {
+                double value = Double.parseDouble(result.get().trim());
+                return Optional.of(value);
+            } catch (NumberFormatException e) {
+                DialogHelper.showError("Ошибка", "Введите корректное число");
+            }
         }
     }
 
-    private MeasurementParam askForParam() {
-        String[] params = {"PH", "CONDUCTIVITY", "NITRATE"};
-        String paramStr = DialogHelper.showRequiredChoiceDialog(
-                "Выбор параметра",
-                "Выберите параметр измерения:",
-                params);
-        return MeasurementParam.valueOf(paramStr);
+    private Optional<Units> askForUnit() {
+        String[] units = {"MOL_L", "MMOL_L", "MOL_ML", "MMOL_ML", "UNITLESS", "SIEMENS"};
+
+        ChoiceDialog<String> dialog = new ChoiceDialog<>(units[0], units);
+        dialog.setTitle("Выбор единиц измерения");
+        dialog.setHeaderText("Выберите единицы измерения");
+        dialog.setContentText("Единицы:");
+
+        Optional<String> result = dialog.showAndWait();
+
+        if (result.isPresent()) {
+            return Optional.of(Units.valueOf(result.get()));
+        }
+
+        return Optional.empty();
     }
 }

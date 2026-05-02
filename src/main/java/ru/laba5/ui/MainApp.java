@@ -16,8 +16,6 @@ public class MainApp extends Application {
     private static RunManager runManager;
     private static RunResultManager resultManager;
     private static CsvStorage storage;
-
-    // Ссылки на вкладки для обновления
     private static ExperimentTab experimentTab;
     private static RunTab runTab;
     private static ResultTab resultTab;
@@ -96,9 +94,9 @@ public class MainApp extends Application {
 
         TabPane tabPane = new TabPane();
         tabPane.getTabs().addAll(
-                createTab("📊 Experiments", experimentTab),
-                createTab("🏃 Runs", runTab),
-                createTab("📈 Results", resultTab)
+                createTab("📊 Эксперименты", experimentTab),
+                createTab("🏃 Запуски", runTab),
+                createTab("📈 Результаты", resultTab)
         );
 
         VBox root = new VBox(createMenuBar(), tabPane, createStatusBar(currentUser));
