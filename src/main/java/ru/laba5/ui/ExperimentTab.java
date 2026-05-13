@@ -1,6 +1,5 @@
 package ru.laba5.ui;
 
-import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
@@ -12,6 +11,7 @@ import ru.laba5.domain.Experiment;
 import ru.laba5.service.ExperimentManager;
 import ru.laba5.service.RunManager;
 import ru.laba5.service.RunResultManager;
+
 import java.util.Optional;
 
 public class ExperimentTab extends VBox {
@@ -136,6 +136,11 @@ public class ExperimentTab extends VBox {
             return;
         }
 
+        if (!selected.getOwnerUsername().equals(currentUser)) {
+            DialogHelper.showError("Ошибка", "У вас нет прав на изменение этого эксперимента");
+            return;
+        }
+
         try {
             String[] choices = {"название", "описание"};
             Optional<String> fieldResult = DialogHelper.showChoiceDialog(
@@ -182,12 +187,14 @@ public class ExperimentTab extends VBox {
             }
 
             if (updated != null) {
-                experimentManager.update(updated);
+                experimentManager.update(updated, currentUser);
                 refreshData();
                 MainApp.saveData();
                 DialogHelper.showInfo("Успех", "Эксперимент обновлён");
             }
 
+        } catch (SecurityException e) {
+            DialogHelper.showError("Ошибка прав", e.getMessage());
         } catch (Exception e) {
             DialogHelper.showError("Ошибка", e.getMessage());
         }

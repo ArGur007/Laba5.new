@@ -32,19 +32,31 @@ public class ExperimentManager {
     }
 
     public List<Experiment> getByOwner(String owner) {
+        if (owner == null) return new ArrayList<>();
         return experiments.values().stream()
-                .filter(e -> e.getOwnerUsername().equals(owner))
+                .filter(e -> owner.equals(e.getOwnerUsername()))
                 .collect(Collectors.toList());
     }
 
-    public void update(Experiment exp) {
-        if (!experiments.containsKey(exp.getId())) {
+    public void update(Experiment exp, String currentUser) {
+        Experiment existing = experiments.get(exp.getId());
+        if (existing == null) {
             throw new IllegalArgumentException("Experiment #" + exp.getId() + " not found");
+        }
+        if (!existing.getOwnerUsername().equals(currentUser)) {
+            throw new SecurityException("У вас нет прав на изменение этого эксперимента (владелец: " + existing.getOwnerUsername() + ")");
         }
         experiments.put(exp.getId(), exp);
     }
 
-    public void remove(long id) {
+    public void remove(long id, String currentUser) {
+        Experiment existing = experiments.get(id);
+        if (existing == null) {
+            throw new IllegalArgumentException("Experiment #" + id + " not found");
+        }
+        if (!existing.getOwnerUsername().equals(currentUser)) {
+            throw new SecurityException("У вас нет прав на удаление этого эксперимента (владелец: " + existing.getOwnerUsername() + ")");
+        }
         experiments.remove(id);
     }
 
@@ -53,7 +65,7 @@ public class ExperimentManager {
     }
 
     public void clear() {
-        experiments.clear(); // или runs, results соответственно
+        experiments.clear();
     }
 
     public void syncIdGenerator() {
@@ -63,4 +75,9 @@ public class ExperimentManager {
         idGenerator.syncWithMaxId(maxId);
     }
 
+    public boolean isExperimentBelongsToUser(long experimentId, String username) {
+        Experiment exp = experiments.get(experimentId);
+        if (exp == null) return false;
+        return exp.getOwnerUsername().equals(username);
+    }
 }

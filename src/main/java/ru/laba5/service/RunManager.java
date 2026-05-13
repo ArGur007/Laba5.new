@@ -1,7 +1,7 @@
 package ru.laba5.service;
 
+import ru.laba5.domain.Experiment;
 import ru.laba5.domain.Run;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -71,4 +71,22 @@ public class RunManager {
         idGenerator.syncWithMaxId(maxId);
     }
 
+    public String getExperimentOwner(long experimentId) {
+        Experiment exp = experimentManager.findById(experimentId);
+        return exp != null ? exp.getOwnerUsername() : null;
+    }
+
+    public boolean isRunBelongsToUser(long runId, String username) {
+        Run run = runs.get(runId);
+        if (run == null) return false;
+        Experiment exp = experimentManager.findById(run.getExperimentId());
+        if (exp == null) return false;
+        return exp.getOwnerUsername().equals(username);
+    }
+    public String getExperimentOwnerByRunId(long runId) {
+        Run run = runs.get(runId);
+        if (run == null) return "неизвестен";
+        Experiment exp = experimentManager.findById(run.getExperimentId());
+        return exp != null ? exp.getOwnerUsername() : "неизвестен";
+    }
 }

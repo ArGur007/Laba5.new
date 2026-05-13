@@ -2,32 +2,36 @@ package ru.laba5.cli;
 
 import ru.laba5.Validation.InputReader;
 import ru.laba5.domain.Experiment;
+import ru.laba5.users.AuthService;
 import ru.laba5.service.ExperimentManager;
-
 import java.util.List;
 
-public class ExpUpdateCommand implements Command {
+public class ExpUpdateCommand extends BaseCommand {
     private final ExperimentManager experimentManager;
-    private final InputReader reader;
-    private final String currentUser;
 
-    public ExpUpdateCommand(ExperimentManager experimentManager, InputReader reader, String currentUser) {
+    public ExpUpdateCommand(ExperimentManager experimentManager, AuthService authService, InputReader reader) {
+        super(authService, reader);
         this.experimentManager = experimentManager;
-        this.reader = reader;
-        this.currentUser = currentUser;
     }
 
     @Override
     public void execute(List<String> args) {
+        if (!requireAuth()) return;
+
         long id = reader.readLong("ID эксперимента: ");
         Experiment exp = experimentManager.findById(id);
+
         if (exp == null) {
-            System.out.println("Эксперимент #" + id + " не найден");
+            printNotFound("Эксперимент", id);
             return;
         }
 
-        String newName = reader.readString("Новое name [" + exp.getName() + "]: ");
-        String newDesc = reader.readString("Новое desc [" + exp.getDescription() + "]: ");
+        if (!checkOwnership(exp.getOwnerUsername(), "эксперимент", id)) {
+            return;
+        }
+
+        String newName = reader.readString("Новое название [" + exp.getName() + "]: ");
+        String newDesc = reader.readString("Новое описание [" + exp.getDescription() + "]: ");
 
         Experiment updated = exp;
         if (!newName.isEmpty()) {
@@ -38,7 +42,7 @@ public class ExpUpdateCommand implements Command {
         }
 
         if (updated != exp) {
-            experimentManager.update(updated);
+            experimentManager.update(updated, getCurrentUser());
             System.out.println("OK");
         } else {
             System.out.println("Ничего не изменено");
