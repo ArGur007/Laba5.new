@@ -42,7 +42,7 @@ public class ExpUpdateCommand extends BaseCommand {
         }
 
         if (updated != exp) {
-            experimentManager.update(updated, getCurrentUser());
+            experimentManager.update(updated);
             System.out.println("OK");
         } else {
             System.out.println("Ничего не изменено");

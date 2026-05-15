@@ -20,12 +20,14 @@ public class ExpRemoveCommand extends BaseRemoveCommand<Experiment> {
 
     @Override
     protected void remove(long id, String currentUser) {
-        experimentManager.remove(id, currentUser);
+        // Новый менеджер не требует передавать currentUser, проверка прав внутри
+        experimentManager.remove(id);
     }
 
     @Override
     protected boolean checkOwnership(long id, String currentUser) {
-        return experimentManager.isExperimentBelongsToUser(id, currentUser);
+        Experiment exp = experimentManager.findById(id);
+        return exp != null && exp.getOwnerUsername().equals(currentUser);
     }
 
     @Override

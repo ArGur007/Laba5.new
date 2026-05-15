@@ -1,34 +1,15 @@
 package ru.laba5.domain;
 
-import com.opencsv.bean.CsvBindByName;
-import com.opencsv.bean.CsvCustomBindByName;
-import ru.laba5.storage.InstantConverter;
-
 import java.time.Instant;
 
 public final class RunResult {
-    @CsvBindByName(column = "id")
     private long id;
-
-    @CsvBindByName(column = "runId")
     private long runId;
-
-    @CsvBindByName(column = "param")
     private MeasurementParam param;
-
-    @CsvBindByName(column = "value")
     private double value;
-
-    @CsvBindByName(column = "unit")
     private String unit;
-
-    @CsvBindByName(column = "comment")
     private String comment;
-
-    @CsvBindByName(column = "ownerUsername")
     private String ownerUsername;
-
-    @CsvCustomBindByName(column = "createdAt", converter = InstantConverter.class)
     private Instant createdAt;
 
     // Константы ограничений
@@ -36,8 +17,27 @@ public final class RunResult {
     public static final int MAX_COMMENT_LENGTH = 128;
     public static final int MAX_OWNER_LENGTH = 64;
 
-    // Пустой конструктор (обязателен для OpenCSV)
+
     public RunResult() {
+
+    }
+
+    // Конструктор для создания нового результата (ID сгенерирует БД)
+    public RunResult(long runId, MeasurementParam param, double value, String unit, String comment, String ownerUsername) {
+        validateRunId(runId);
+        validateParam(param);
+        validateValue(value);
+        validateUnit(unit);
+        validateComment(comment);
+        validateOwner(ownerUsername);
+        this.runId = runId;
+        this.param = param;
+        this.value = value;
+        this.unit = unit != null ? unit.trim() : "";
+        this.comment = comment != null ? comment.trim() : "";
+        this.ownerUsername = ownerUsername != null ? ownerUsername.trim() : "SYSTEM";
+        this.createdAt = Instant.now();
+        // id = 0, будет установлен после сохранения
     }
 
     // Конструктор для создания нового результата (дата = текущее время)

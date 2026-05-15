@@ -1,92 +1,123 @@
 package ru.laba5.service;
 
+import ru.laba5.db.dao.RunDAO;
 import ru.laba5.domain.Experiment;
 import ru.laba5.domain.Run;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
+import ru.laba5.users.AuthService;
+import java.sql.SQLException;
+import java.util.*;
 
 public class RunManager {
-    private final Map<Long, Run> runs = new HashMap<>();
-    private final IdGenerator idGenerator = new IdGenerator();
+    private final Map<Long, Run> cache = new HashMap<>();
+    private final AuthService authService;
     private final ExperimentManager experimentManager;
 
-    public RunManager(ExperimentManager experimentManager) {
+    public RunManager(AuthService authService, ExperimentManager experimentManager) {
+        this.authService = authService;
         this.experimentManager = experimentManager;
+        reload();
     }
 
-    public long getNextId() {
-        return idGenerator.nextId();
-    }
-
-    public void add(Run run) {
-        if (!experimentManager.exists(run.getExperimentId())) {
-            throw new IllegalArgumentException("Experiment #" + run.getExperimentId() + " does not exist");
+    public void reload() {
+        try {
+            List<Run> list = RunDAO.loadAll();
+            cache.clear();
+            list.forEach(r -> cache.put(r.getId(), r));
+        } catch (SQLException e) {
+            throw new RuntimeException("Ошибка загрузки запусков", e);
         }
-        if (runs.containsKey(run.getId())) {
-            throw new IllegalArgumentException("Run ID " + run.getId() + " already exists");
-        }
-        runs.put(run.getId(), run);
     }
 
-    public Run findById(long id) {
-        return runs.get(id);
+    private int currentUserId() {
+        return authService.getCurrentUserId();
     }
 
-    public List<Run> getByExperiment(long experimentId) {
-        return runs.values().stream()
-                .filter(r -> r.getExperimentId() == experimentId)
-                .collect(Collectors.toList());
+    private String currentUserLogin() {
+        return authService.getCurrentUsername();
     }
 
     public List<Run> getAll() {
-        return new ArrayList<>(runs.values());
+        return new ArrayList<>(cache.values());
     }
 
-    public void update(Run run) {
-        if (!runs.containsKey(run.getId())) {
-            throw new IllegalArgumentException("Run #" + run.getId() + " not found");
-        }
-        runs.put(run.getId(), run);
+    // Метод для совместимости с GUI (возвращает null, если не найден)
+    public Run findById(long id) {
+        return cache.get(id);
     }
 
-    public void remove(long id) {
-        runs.remove(id);
+    // Optional-версия для более безопасного кода
+    public Optional<Run> findByIdOptional(long id) {
+        return Optional.ofNullable(cache.get(id));
+    }
+
+    public List<Run> getByExperiment(long experimentId) {
+        return cache.values().stream()
+                .filter(r -> r.getExperimentId() == experimentId)
+                .toList();
     }
 
     public boolean exists(long id) {
-        return runs.containsKey(id);
+        return cache.containsKey(id);
+    }
+
+    public void add(Run run) {
+        requireExperimentOwnership(run.getExperimentId());
+        int ownerId = currentUserId();
+        try {
+            int newId = RunDAO.create(run, ownerId);
+            run.setId(newId);
+            cache.put(run.getId(), run);
+        } catch (SQLException e) {
+            throw new RuntimeException("Ошибка добавления запуска", e);
+        }
+    }
+
+    public void update(Run run) {
+        requireOwnership(run.getId());
+        int ownerId = currentUserId();
+        try {
+            if (!RunDAO.update(run, ownerId))
+                throw new SecurityException("Запуск не найден или не принадлежит вам");
+            cache.put(run.getId(), run);
+        } catch (SQLException e) {
+            throw new RuntimeException("Ошибка обновления", e);
+        }
+    }
+
+    public void remove(long id) {
+        requireOwnership(id);
+        int ownerId = currentUserId();
+        try {
+            if (!RunDAO.delete(id, ownerId))
+                throw new SecurityException("Запуск не найден");
+            cache.remove(id);
+        } catch (SQLException e) {
+            throw new RuntimeException("Ошибка удаления", e);
+        }
     }
 
     public void clear() {
-        runs.clear();
+        int ownerId = currentUserId();
+        try {
+            RunDAO.deleteByOwner(ownerId);
+            cache.values().removeIf(run -> {
+                Experiment exp = experimentManager.findById(run.getExperimentId());
+                return exp != null && exp.getOwnerUsername().equals(currentUserLogin());
+            });
+        } catch (SQLException e) {
+            throw new RuntimeException("Ошибка очистки", e);
+        }
     }
 
-    public void syncIdGenerator() {
-        long maxId = runs.keySet().stream()
-                .max(Long::compareTo)
-                .orElse(0L);
-        idGenerator.syncWithMaxId(maxId);
-    }
-
-    public String getExperimentOwner(long experimentId) {
+    private void requireExperimentOwnership(long experimentId) {
         Experiment exp = experimentManager.findById(experimentId);
-        return exp != null ? exp.getOwnerUsername() : null;
+        if (exp == null || !exp.getOwnerUsername().equals(currentUserLogin()))
+            throw new SecurityException("Эксперимент не найден или не принадлежит вам");
     }
 
-    public boolean isRunBelongsToUser(long runId, String username) {
-        Run run = runs.get(runId);
-        if (run == null) return false;
-        Experiment exp = experimentManager.findById(run.getExperimentId());
-        if (exp == null) return false;
-        return exp.getOwnerUsername().equals(username);
-    }
-    public String getExperimentOwnerByRunId(long runId) {
-        Run run = runs.get(runId);
-        if (run == null) return "неизвестен";
-        Experiment exp = experimentManager.findById(run.getExperimentId());
-        return exp != null ? exp.getOwnerUsername() : "неизвестен";
+    private void requireOwnership(long runId) {
+        Run run = cache.get(runId);
+        if (run == null) throw new IllegalArgumentException("Запуск #" + runId + " не найден");
+        requireExperimentOwnership(run.getExperimentId());
     }
 }

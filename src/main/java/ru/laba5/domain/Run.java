@@ -1,34 +1,29 @@
 package ru.laba5.domain;
-
-import com.opencsv.bean.CsvBindByName;
-import com.opencsv.bean.CsvCustomBindByName;
-import ru.laba5.storage.InstantConverter;
-
 import java.time.Instant;
 
 public final class Run {
-    @CsvBindByName(column = "id")
     private long id;
-
-    @CsvBindByName(column = "experimentId")
     private long experimentId;
-
-    @CsvBindByName(column = "name")
     private String name;
-
-    @CsvBindByName(column = "operatorName")
     private String operatorName;
-
-    @CsvCustomBindByName(column = "createdAt", converter = InstantConverter.class)
     private Instant createdAt;
 
     // Константы ограничений
     public static final int MAX_NAME_LENGTH = 128;
     public static final int MAX_OPERATOR_LENGTH = 64;
 
-    // Пустой конструктор (обязателен для OpenCSV)
-    public Run() {
+    // Конструктор для создания нового запуска (ID сгенерирует БД)
+    public Run(long experimentId, String name, String operatorName) {
+        validateExperimentId(experimentId);
+        validateName(name);
+        validateOperatorName(operatorName);
+        this.experimentId = experimentId;
+        this.name = name.trim();
+        this.operatorName = operatorName != null ? operatorName.trim() : "SYSTEM";
+        this.createdAt = Instant.now();
+        // id остаётся 0, будет установлен после сохранения
     }
+
 
     // Конструктор для создания нового запуска (дата = текущее время)
     public Run(long id, long experimentId, String name, String operatorName) {
@@ -47,6 +42,10 @@ public final class Run {
         this.name = name.trim();
         this.operatorName = operatorName != null ? operatorName.trim() : "SYSTEM";
         this.createdAt = createdAt;
+    }
+
+    public Run(){
+
     }
 
     // Метод для создания обновлённой копии (если нужно)

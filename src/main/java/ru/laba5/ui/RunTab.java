@@ -64,7 +64,15 @@ public class RunTab extends VBox {
             refreshData();
         });
 
-        filterBox.getChildren().addAll(filterLabel, experimentFilter, clearFilterBtn);
+        Button refreshRunsBtn = new Button("Обновить список");
+        refreshRunsBtn.setOnAction(e -> {
+            experimentManager.reload();
+            runManager.reload();
+            refreshFilters();
+            refreshData();
+        });
+
+        filterBox.getChildren().addAll(filterLabel, experimentFilter, clearFilterBtn, refreshRunsBtn);
         return filterBox;
     }
 
@@ -85,25 +93,34 @@ public class RunTab extends VBox {
         operatorCol.setCellValueFactory(new PropertyValueFactory<>("operatorName"));
         operatorCol.setPrefWidth(120);
 
-        tableView.getColumns().addAll(idCol, expIdCol, nameCol, operatorCol);
+        // Добавляем колонку владельца (через эксперимент)
+        TableColumn<Run, String> ownerCol = new TableColumn<>("Владелец");
+        ownerCol.setCellValueFactory(cellData -> {
+            Experiment exp = experimentManager.findById(cellData.getValue().getExperimentId());
+            return new javafx.beans.property.SimpleStringProperty(exp != null ? exp.getOwnerUsername() : "?");
+        });
+        ownerCol.setPrefWidth(100);
+
+        tableView.getColumns().addAll(idCol, expIdCol, nameCol, operatorCol, ownerCol);
     }
 
     private HBox createButtonBar() {
         Button refreshBtn = new Button("Обновить");
         refreshBtn.setOnAction(e -> {
-            MainApp.reloadData();
+            experimentManager.reload();
+            runManager.reload();
             refreshFilters();
             refreshData();
-            DialogHelper.showInfo("Обновление", "Данные обновлены");
+            DialogHelper.showInfo("Обновление", "Данные обновлены из БД");
         });
 
         Button addBtn = new Button("Добавить запуск");
         addBtn.setOnAction(e -> showAddDialog());
 
-        Button saveBtn = new Button("Сохранить");
-        saveBtn.setOnAction(e -> MainApp.saveData());
+        Button deleteBtn = new Button("Удалить");
+        deleteBtn.setOnAction(e -> showDeleteDialog());
 
-        return new HBox(10, refreshBtn, addBtn, saveBtn);
+        return new HBox(10, refreshBtn, addBtn, deleteBtn);
     }
 
     public void refreshFilters() {
@@ -148,20 +165,21 @@ public class RunTab extends VBox {
 
         try {
             Optional<Experiment> expResult = askForExperiment();
-            if (!expResult.isPresent()) {
-                return;
-            }
+            if (!expResult.isPresent()) return;
 
             Experiment experiment = expResult.get();
+
+            if (!experiment.getOwnerUsername().equals(currentUser)) {
+                DialogHelper.showError("Ошибка прав", "Вы не можете добавить запуск к чужому эксперименту");
+                return;
+            }
 
             Optional<String> nameResult = DialogHelper.showInputDialog(
                     "Добавление запуска",
                     "Название запуска для эксперимента #" + experiment.getId(),
                     "Название:");
 
-            if (!nameResult.isPresent()) {
-                return;
-            }
+            if (!nameResult.isPresent()) return;
 
             String name = nameResult.get().trim();
             if (name.isEmpty()) {
@@ -169,18 +187,54 @@ public class RunTab extends VBox {
                 return;
             }
 
-            long id = runManager.getNextId();
-            Run run = new Run(id, experiment.getId(), name, currentUser);
-            runManager.add(run);
+            // Создаём Run с временным ID 0
+            Run run = new Run(experiment.getId(), name, currentUser);
+            runManager.add(run); // БД генерирует ID и обновляет объект run
 
             refreshFilters();
             refreshData();
-            MainApp.saveData();
+            DialogHelper.showInfo("Успех", "Запуск создан, ID = " + run.getId());
 
-            DialogHelper.showInfo("Успех", "Запуск создан с ID: " + id);
-
+        } catch (SecurityException e) {
+            DialogHelper.showError("Ошибка прав", e.getMessage());
         } catch (Exception e) {
             DialogHelper.showError("Ошибка", e.getMessage());
+        }
+    }
+
+
+    private void showDeleteDialog() {
+        Run selected = tableView.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            DialogHelper.showError("Ошибка", "Выберите запуск для удаления");
+            return;
+        }
+
+        // Проверяем, владелец ли текущий пользователь (через эксперимент)
+        Experiment exp = experimentManager.findById(selected.getExperimentId());
+        if (exp == null) {
+            DialogHelper.showError("Ошибка", "Эксперимент не найден");
+            return;
+        }
+        if (!exp.getOwnerUsername().equals(currentUser)) {
+            DialogHelper.showError("Ошибка прав", "У вас нет прав на удаление этого запуска");
+            return;
+        }
+
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Подтверждение удаления");
+        confirm.setHeaderText("Удалить запуск #" + selected.getId() + "?");
+        confirm.setContentText("Будут также удалены все результаты этого запуска.");
+        Optional<ButtonType> result = confirm.showAndWait();
+
+        if (result.isPresent() && result.get() == ButtonType.OK) {
+            try {
+                runManager.remove(selected.getId());
+                refreshData();
+                DialogHelper.showInfo("Успех", "Запуск удалён");
+            } catch (Exception e) {
+                DialogHelper.showError("Ошибка", e.getMessage());
+            }
         }
     }
 
@@ -193,7 +247,8 @@ public class RunTab extends VBox {
         dialog.getDialogPane().getButtonTypes().addAll(okButton, ButtonType.CANCEL);
 
         ComboBox<Experiment> expCombo = new ComboBox<>();
-        expCombo.getItems().addAll(experimentManager.getAll());
+        // Показываем только эксперименты текущего пользователя (или все, если нужно)
+        expCombo.getItems().addAll(experimentManager.getByOwner(currentUser));
 
         expCombo.setCellFactory(lv -> new ListCell<Experiment>() {
             @Override
@@ -212,9 +267,7 @@ public class RunTab extends VBox {
 
         dialog.getDialogPane().setContent(expCombo);
         dialog.setResultConverter(dialogButton -> {
-            if (dialogButton == okButton) {
-                return expCombo.getValue();
-            }
+            if (dialogButton == okButton) return expCombo.getValue();
             return null;
         });
 

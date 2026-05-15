@@ -22,9 +22,10 @@ public class ExpCreateCommand extends BaseCommand {
         String name = reader.readNonEmpty("Название: ");
         String description = reader.readString("Описание: ");
 
-        long id = experimentManager.getNextId();
-        Experiment exp = new Experiment(id, name, description, getCurrentUser());
-        experimentManager.add(exp);
-        System.out.println("OK exp_id=" + id);
+        // Временный ID = 0 (БД сгенерирует реальный)
+        Experiment exp = new Experiment(name, description, getCurrentUser());
+        experimentManager.add(exp); // внутри менеджера ID обновится
+
+        System.out.println("OK exp_id=" + exp.getId());
     }
 }

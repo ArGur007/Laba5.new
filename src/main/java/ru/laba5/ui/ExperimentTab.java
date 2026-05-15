@@ -68,9 +68,9 @@ public class ExperimentTab extends VBox {
     private HBox createButtonBar() {
         Button refreshBtn = new Button("Обновить");
         refreshBtn.setOnAction(e -> {
-            MainApp.reloadData();
+            experimentManager.reload();
             refreshData();
-            DialogHelper.showInfo("Обновление", "Данные обновлены");
+            DialogHelper.showInfo("Обновление", "Данные обновлены из БД");
         });
 
         Button addBtn = new Button("Добавить эксперимент");
@@ -79,10 +79,7 @@ public class ExperimentTab extends VBox {
         Button updateBtn = new Button("Редактировать");
         updateBtn.setOnAction(e -> showUpdateDialog());
 
-        Button saveBtn = new Button("Сохранить");
-        saveBtn.setOnAction(e -> MainApp.saveData());
-
-        return new HBox(10, refreshBtn, addBtn, updateBtn, saveBtn);
+        return new HBox(10, refreshBtn, addBtn, updateBtn);
     }
 
     public void refreshData() {
@@ -97,9 +94,7 @@ public class ExperimentTab extends VBox {
                     "Введите название эксперимента",
                     "Название:");
 
-            if (!nameResult.isPresent()) {
-                return;
-            }
+            if (!nameResult.isPresent()) return;
 
             String name = nameResult.get().trim();
             if (name.isEmpty()) {
@@ -112,17 +107,14 @@ public class ExperimentTab extends VBox {
                     "Введите описание (необязательно)",
                     "Описание:");
 
-            String description = "";
-            if (descResult.isPresent()) {
-                description = descResult.get().trim();
-            }
+            String description = descResult.map(String::trim).orElse("");
 
-            long id = experimentManager.getNextId();
-            Experiment exp = new Experiment(id, name, description, currentUser);
-            experimentManager.add(exp);
+            // Создаём временный объект без ID (ID присвоит БД)
+            Experiment exp = new Experiment( name, description, currentUser);
+            experimentManager.add(exp); // внутри менеджера ID проставится автоматически
+
             refreshData();
-            MainApp.saveData();
-            DialogHelper.showInfo("Успех", "Эксперимент создан с ID: " + id);
+            DialogHelper.showInfo("Успех", "Эксперимент создан, ID = " + exp.getId());
 
         } catch (Exception e) {
             DialogHelper.showError("Ошибка", e.getMessage());
@@ -148,9 +140,7 @@ public class ExperimentTab extends VBox {
                     "Выберите поле для изменения:",
                     choices);
 
-            if (!fieldResult.isPresent()) {
-                return;
-            }
+            if (!fieldResult.isPresent()) return;
 
             String field = fieldResult.get();
             Experiment updated = null;
@@ -161,9 +151,7 @@ public class ExperimentTab extends VBox {
                         "Новое название для эксперимента #" + selected.getId(),
                         "Название:");
 
-                if (!nameResult.isPresent()) {
-                    return;
-                }
+                if (!nameResult.isPresent()) return;
 
                 String newName = nameResult.get().trim();
                 if (newName.isEmpty()) {
@@ -178,18 +166,15 @@ public class ExperimentTab extends VBox {
                         "Новое описание для эксперимента #" + selected.getId(),
                         "Описание:");
 
-                if (!descResult.isPresent()) {
-                    return;
-                }
+                if (!descResult.isPresent()) return;
 
                 String newDesc = descResult.get().trim();
                 updated = selected.updateDescription(newDesc);
             }
 
             if (updated != null) {
-                experimentManager.update(updated, currentUser);
+                experimentManager.update(updated); // теперь без currentUser
                 refreshData();
-                MainApp.saveData();
                 DialogHelper.showInfo("Успех", "Эксперимент обновлён");
             }
 

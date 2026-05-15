@@ -1,20 +1,27 @@
 package ru.laba5.cli;
 
 import ru.laba5.Validation.InputReader;
+import ru.laba5.domain.Experiment;
+import ru.laba5.domain.Run;
 import ru.laba5.domain.RunResult;
 import ru.laba5.users.AuthService;
+import ru.laba5.service.ExperimentManager;
 import ru.laba5.service.RunManager;
 import ru.laba5.service.RunResultManager;
 
 public class ResultRemoveCommand extends BaseRemoveCommand<RunResult> {
     private final RunResultManager resultManager;
     private final RunManager runManager;
+    private final ExperimentManager experimentManager;
 
+    // Добавили ExperimentManager в конструктор
     public ResultRemoveCommand(RunResultManager resultManager, RunManager runManager,
+                               ExperimentManager experimentManager,
                                AuthService authService, InputReader reader) {
         super(authService, reader);
         this.resultManager = resultManager;
         this.runManager = runManager;
+        this.experimentManager = experimentManager;
     }
 
     @Override
@@ -31,7 +38,10 @@ public class ResultRemoveCommand extends BaseRemoveCommand<RunResult> {
     protected boolean checkOwnership(long id, String currentUser) {
         RunResult result = resultManager.findById(id);
         if (result == null) return false;
-        return runManager.isRunBelongsToUser(result.getRunId(), currentUser);
+        Run run = runManager.findById(result.getRunId());
+        if (run == null) return false;
+        Experiment exp = experimentManager.findById(run.getExperimentId());
+        return exp != null && exp.getOwnerUsername().equals(currentUser);
     }
 
     @Override
@@ -43,6 +53,9 @@ public class ResultRemoveCommand extends BaseRemoveCommand<RunResult> {
     protected String getOwnerName(long id) {
         RunResult result = resultManager.findById(id);
         if (result == null) return "неизвестен";
-        return runManager.getExperimentOwnerByRunId(result.getRunId());
+        Run run = runManager.findById(result.getRunId());
+        if (run == null) return "неизвестен";
+        Experiment exp = experimentManager.findById(run.getExperimentId());
+        return exp != null ? exp.getOwnerUsername() : "неизвестен";
     }
 }

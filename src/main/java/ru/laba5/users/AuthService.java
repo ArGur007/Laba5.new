@@ -1,78 +1,55 @@
 package ru.laba5.users;
 
-import ru.laba5.domain.User;
-import ru.laba5.users.UserStorage;
-import ru.laba5.users.PasswordHasher;
+import ru.laba5.db.dao.UserDAO;
+import ru.laba5.users.User;
+import java.sql.SQLException;
 
 public class AuthService {
-    private final UserStorage userStorage = new UserStorage();
     private User currentUser = null;
 
     public boolean isLoginTaken(String login) {
-        return userStorage.exists(login);
+        try { return UserDAO.exists(login); }
+        catch (SQLException e) { e.printStackTrace(); return true; }
     }
 
-    public boolean userExists(String login) {
-        return userStorage.exists(login);
-    }
+    public boolean userExists(String login) { return isLoginTaken(login); }
 
     public boolean register(String login, String password) {
-        if (login == null || login.trim().isEmpty()) {
+        if (login == null || login.trim().isEmpty()) return false;
+        if (password == null || password.trim().isEmpty()) return false;
+        if (login.length() > 64) return false;
+        try {
+            if (UserDAO.exists(login)) return false;
+            String hash = PasswordHasher.hash(password);
+            int id = UserDAO.create(login, hash);
+            currentUser = new User(id, login, hash);
+            return true;
+        } catch (SQLException e) {
+            e.printStackTrace();
             return false;
         }
-        if (password == null || password.trim().isEmpty()) {
-            return false;
-        }
-        if (login.length() > 64) {
-            return false;
-        }
-        if (userStorage.exists(login)) {
-            return false;
-        }
-
-        String hash = PasswordHasher.hash(password);
-        User user = new User(login, hash);
-        return userStorage.addUser(user);
     }
 
     public boolean login(String login, String password) {
-        if (login == null || login.trim().isEmpty()) {
-            System.out.println("Ошибка: введите логин");
+        if (login == null || login.trim().isEmpty()) return false;
+        try {
+            User user = UserDAO.findByLogin(login);
+            if (user == null) return false;
+            String hash = PasswordHasher.hash(password);
+            if (user.getPasswordHash().equals(hash)) {
+                currentUser = user;
+                return true;
+            }
             return false;
-        }
-        User user = userStorage.findByLogin(login);
-        if (user == null) {
-            System.out.println("Ошибка: пользователь не найден");
-            return false;
-        }
-
-        String hash = PasswordHasher.hash(password);
-        if (user.getPasswordHash().equals(hash)) {
-            currentUser = user;
-            System.out.println("Добро пожаловать, " + login + "!");
-            return true;
-        } else {
-            System.out.println("Ошибка: неверный пароль");
+        } catch (SQLException e) {
+            e.printStackTrace();
             return false;
         }
     }
 
-    public void logout() {
-        if (currentUser != null) {
-            System.out.println("До свидания, " + currentUser.getLogin() + "!");
-            currentUser = null;
-        }
-    }
-
-    public User getCurrentUser() {
-        return currentUser;
-    }
-
-    public String getCurrentUsername() {
-        return currentUser != null ? currentUser.getLogin() : null;
-    }
-
-    public boolean isAuthenticated() {
-        return currentUser != null;
-    }
+    public void logout() { currentUser = null; }
+    public User getCurrentUser() { return currentUser; }
+    public String getCurrentUsername() { return currentUser != null ? currentUser.getLogin() : null; }
+    public int getCurrentUserId() { return currentUser != null ? currentUser.getId() : -1; }
+    public boolean isAuthenticated() { return currentUser != null; }
 }

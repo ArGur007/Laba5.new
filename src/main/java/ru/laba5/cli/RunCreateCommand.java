@@ -1,6 +1,7 @@
 package ru.laba5.cli;
 
 import ru.laba5.Validation.InputReader;
+import ru.laba5.domain.Experiment;
 import ru.laba5.domain.Run;
 import ru.laba5.users.AuthService;
 import ru.laba5.service.ExperimentManager;
@@ -25,14 +26,15 @@ public class RunCreateCommand extends BaseCommand {
 
         long expId = reader.readLong("ID эксперимента: ");
 
-        if (experimentManager.findById(expId) == null) {
+        Experiment experiment = experimentManager.findById(expId);
+        if (experiment == null) {
             printNotFound("Эксперимент", expId);
             return;
         }
 
-        if (!experimentManager.isExperimentBelongsToUser(expId, getCurrentUser())) {
+        if (!experiment.getOwnerUsername().equals(getCurrentUser())) {
             handleError("У вас нет прав на добавление запусков к этому эксперименту");
-            System.out.println("Владелец эксперимента: " + experimentManager.findById(expId).getOwnerUsername());
+            System.out.println("Владелец эксперимента: " + experiment.getOwnerUsername());
             return;
         }
 
@@ -40,9 +42,9 @@ public class RunCreateCommand extends BaseCommand {
         String operator = reader.readString("Оператор [" + getCurrentUser() + "]: ");
         if (operator.isEmpty()) operator = getCurrentUser();
 
-        long runId = runManager.getNextId();
-        Run run = new Run(runId, expId, name, operator);
+        Run run = new Run( expId, name, operator);
         runManager.add(run);
-        System.out.println("OK run_id=" + runId);
+
+        System.out.println("OK run_id=" + run.getId());
     }
 }

@@ -8,6 +8,7 @@ import javafx.scene.control.*;
 import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import ru.laba5.domain.Experiment;
 import ru.laba5.domain.MeasurementParam;
 import ru.laba5.domain.Run;
 import ru.laba5.domain.RunResult;
@@ -20,6 +21,7 @@ import java.util.List;
 import java.util.Optional;
 
 public class ResultTab extends VBox {
+    private final ExperimentManager experimentManager;
     private final RunManager runManager;
     private final RunResultManager resultManager;
     private final String currentUser;
@@ -32,6 +34,7 @@ public class ResultTab extends VBox {
                      RunManager runManager,
                      RunResultManager resultManager,
                      String currentUser) {
+        this.experimentManager = experimentManager;
         this.runManager = runManager;
         this.resultManager = resultManager;
         this.currentUser = currentUser;
@@ -66,10 +69,16 @@ public class ResultTab extends VBox {
             refreshData();
         });
 
-        Button refreshRunsBtn = new Button("Обновить список запусков");
-        refreshRunsBtn.setOnAction(e -> refreshFilters());
+        Button refreshBtn = new Button("Обновить списки");
+        refreshBtn.setOnAction(e -> {
+            runManager.reload();
+            resultManager.reload();
+            refreshFilters();
+            refreshData();
+            DialogHelper.showInfo("Обновление", "Данные обновлены из БД");
+        });
 
-        filterBox.getChildren().addAll(filterLabel, runFilter, clearFilterBtn, refreshRunsBtn);
+        filterBox.getChildren().addAll(filterLabel, runFilter, clearFilterBtn, refreshBtn);
         return filterBox;
     }
 
@@ -102,15 +111,29 @@ public class ResultTab extends VBox {
         commentCol.setCellValueFactory(new PropertyValueFactory<>("comment"));
         commentCol.setPrefWidth(300);
 
-        tv.getColumns().addAll(idCol, runIdCol, paramCol, valueCol, unitCol, commentCol);
+        // Колонка владельца (через эксперимент)
+        TableColumn<RunResult, String> ownerCol = new TableColumn<>("Владелец");
+        ownerCol.setCellValueFactory(cellData -> {
+            long runId = cellData.getValue().getRunId();
+            Run run = runManager.findById(runId);
+            if (run != null) {
+                Experiment exp = experimentManager.findById(run.getExperimentId());
+                if (exp != null) {
+                    return new SimpleStringProperty(exp.getOwnerUsername());
+                }
+            }
+            return new SimpleStringProperty("?");
+        });
+        ownerCol.setPrefWidth(100);
+
+        tv.getColumns().addAll(idCol, runIdCol, paramCol, valueCol, unitCol, commentCol, ownerCol);
         return tv;
     }
 
     private HBox createButtonBar() {
-        Button refreshBtn = new Button("Обновить");
+        Button refreshBtn = new Button("Обновить таблицу");
         refreshBtn.setOnAction(e -> {
-            MainApp.reloadData();
-            refreshFilters();
+            resultManager.reload();
             refreshData();
             DialogHelper.showInfo("Обновление", "Данные обновлены");
         });
@@ -118,15 +141,22 @@ public class ResultTab extends VBox {
         Button addBtn = new Button("Добавить результат");
         addBtn.setOnAction(e -> showAddDialog());
 
-        Button saveBtn = new Button("Сохранить");
-        saveBtn.setOnAction(e -> MainApp.saveData());
+        Button deleteBtn = new Button("Удалить результат");
+        deleteBtn.setOnAction(e -> showDeleteDialog());
 
-        return new HBox(10, refreshBtn, addBtn, saveBtn);
+        return new HBox(10, refreshBtn, addBtn, deleteBtn);
     }
 
     public void refreshFilters() {
         runFilter.getItems().clear();
-        runFilter.getItems().addAll(runManager.getAll());
+        // Показываем только те запуски, к которым у пользователя есть доступ (владелец эксперимента)
+        List<Run> allowedRuns = runManager.getAll().stream()
+                .filter(run -> {
+                    Experiment exp = experimentManager.findById(run.getExperimentId());
+                    return exp != null && exp.getOwnerUsername().equals(currentUser);
+                })
+                .toList();
+        runFilter.getItems().addAll(allowedRuns);
 
         runFilter.setCellFactory(lv -> new ListCell<Run>() {
             @Override
@@ -166,55 +196,83 @@ public class ResultTab extends VBox {
 
         try {
             Optional<Run> runResult = askForRun();
-            if (!runResult.isPresent()) {
-                return;
-            }
+            if (!runResult.isPresent()) return;
 
             Run run = runResult.get();
 
-            Optional<MeasurementParam> paramResult = askForParam();
-            if (!paramResult.isPresent()) {
+            // Проверка прав: пользователь должен быть владельцем эксперимента
+            Experiment exp = experimentManager.findById(run.getExperimentId());
+            if (exp == null || !exp.getOwnerUsername().equals(currentUser)) {
+                DialogHelper.showError("Ошибка прав", "Вы не можете добавить результат к этому запуску");
                 return;
             }
 
+            Optional<MeasurementParam> paramResult = askForParam();
+            if (!paramResult.isPresent()) return;
             MeasurementParam param = paramResult.get();
 
             Optional<Double> valueResult = askForValue(param);
-            if (!valueResult.isPresent()) {
-                return;
-            }
-
+            if (!valueResult.isPresent()) return;
             double value = valueResult.get();
 
             Optional<Units> unitResult = askForUnit();
-            if (!unitResult.isPresent()) {
-                return;
-            }
-
+            if (!unitResult.isPresent()) return;
             Units unit = unitResult.get();
 
             Optional<String> commentResult = DialogHelper.showInputDialog(
                     "Добавление результата",
                     "Введите комментарий (необязательно)",
                     "Комментарий:");
+            String comment = commentResult.orElse("").trim();
 
-            String comment = "";
-            if (commentResult.isPresent()) {
-                comment = commentResult.get().trim();
-            }
-
-            long id = resultManager.getNextId();
-            RunResult result = new RunResult(id, run.getId(), param, value, unit.name(), comment, currentUser);
-            resultManager.add(result);
+            // Создаём результат с временным ID = 0
+            RunResult result = new RunResult(run.getId(), param, value, unit.name(), comment, currentUser);
+            resultManager.add(result); // БД сгенерирует ID и обновит объект
 
             refreshData();
             refreshFilters();
-            MainApp.saveData();
+            DialogHelper.showInfo("Успех", "Результат создан, ID = " + result.getId());
 
-            DialogHelper.showInfo("Успех", "Результат создан с ID: " + id);
-
+        } catch (SecurityException e) {
+            DialogHelper.showError("Ошибка прав", e.getMessage());
         } catch (Exception e) {
             DialogHelper.showError("Ошибка", e.getMessage());
+        }
+    }
+
+    private void showDeleteDialog() {
+        RunResult selected = tableView.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            DialogHelper.showError("Ошибка", "Выберите результат для удаления");
+            return;
+        }
+
+        // Проверяем права через эксперимент
+        Run run = runManager.findById(selected.getRunId());
+        if (run == null) {
+            DialogHelper.showError("Ошибка", "Запуск не найден");
+            return;
+        }
+        Experiment exp = experimentManager.findById(run.getExperimentId());
+        if (exp == null || !exp.getOwnerUsername().equals(currentUser)) {
+            DialogHelper.showError("Ошибка прав", "У вас нет прав на удаление этого результата");
+            return;
+        }
+
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Подтверждение удаления");
+        confirm.setHeaderText("Удалить результат #" + selected.getId() + "?");
+        confirm.setContentText("Это действие нельзя отменить.");
+        Optional<ButtonType> result = confirm.showAndWait();
+
+        if (result.isPresent() && result.get() == ButtonType.OK) {
+            try {
+                resultManager.remove(selected.getId());
+                refreshData();
+                DialogHelper.showInfo("Успех", "Результат удалён");
+            } catch (Exception e) {
+                DialogHelper.showError("Ошибка", e.getMessage());
+            }
         }
     }
 
@@ -227,7 +285,14 @@ public class ResultTab extends VBox {
         dialog.getDialogPane().getButtonTypes().addAll(okButton, ButtonType.CANCEL);
 
         ComboBox<Run> runCombo = new ComboBox<>();
-        runCombo.getItems().addAll(runManager.getAll());
+        // Показываем только запуски, доступные пользователю (владельцу эксперимента)
+        List<Run> allowedRuns = runManager.getAll().stream()
+                .filter(run -> {
+                    Experiment exp = experimentManager.findById(run.getExperimentId());
+                    return exp != null && exp.getOwnerUsername().equals(currentUser);
+                })
+                .toList();
+        runCombo.getItems().addAll(allowedRuns);
 
         runCombo.setCellFactory(lv -> new ListCell<Run>() {
             @Override
@@ -246,9 +311,7 @@ public class ResultTab extends VBox {
 
         dialog.getDialogPane().setContent(runCombo);
         dialog.setResultConverter(dialogButton -> {
-            if (dialogButton == okButton) {
-                return runCombo.getValue();
-            }
+            if (dialogButton == okButton) return runCombo.getValue();
             return null;
         });
 
@@ -257,19 +320,12 @@ public class ResultTab extends VBox {
 
     private Optional<MeasurementParam> askForParam() {
         String[] params = {"PH", "CONDUCTIVITY", "NITRATE"};
-
         ChoiceDialog<String> dialog = new ChoiceDialog<>(params[0], params);
         dialog.setTitle("Выбор параметра");
         dialog.setHeaderText("Выберите параметр измерения");
         dialog.setContentText("Параметр:");
-
         Optional<String> result = dialog.showAndWait();
-
-        if (result.isPresent()) {
-            return Optional.of(MeasurementParam.valueOf(result.get()));
-        }
-
-        return Optional.empty();
+        return result.map(MeasurementParam::valueOf);
     }
 
     private Optional<Double> askForValue(MeasurementParam param) {
@@ -278,13 +334,8 @@ public class ResultTab extends VBox {
             dialog.setTitle("Ввод значения");
             dialog.setHeaderText("Значение для " + param.name());
             dialog.setContentText("Значение:");
-
             Optional<String> result = dialog.showAndWait();
-
-            if (!result.isPresent()) {
-                return Optional.empty();
-            }
-
+            if (!result.isPresent()) return Optional.empty();
             try {
                 double value = Double.parseDouble(result.get().trim());
                 return Optional.of(value);
@@ -296,18 +347,11 @@ public class ResultTab extends VBox {
 
     private Optional<Units> askForUnit() {
         String[] units = {"MOL_L", "MMOL_L", "MOL_ML", "MMOL_ML", "UNITLESS", "SIEMENS"};
-
         ChoiceDialog<String> dialog = new ChoiceDialog<>(units[0], units);
         dialog.setTitle("Выбор единиц измерения");
         dialog.setHeaderText("Выберите единицы измерения");
         dialog.setContentText("Единицы:");
-
         Optional<String> result = dialog.showAndWait();
-
-        if (result.isPresent()) {
-            return Optional.of(Units.valueOf(result.get()));
-        }
-
-        return Optional.empty();
+        return result.map(Units::valueOf);
     }
 }
