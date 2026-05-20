@@ -6,6 +6,8 @@ import ru.laba5.domain.Run;
 import ru.laba5.users.AuthService;
 import java.sql.SQLException;
 import java.util.*;
+import ru.laba5.domain.HistoryRecord;
+import ru.laba5.db.dao.HistoryDAO;
 
 public class RunManager {
     private final Map<Long, Run> cache = new HashMap<>();
@@ -67,27 +69,64 @@ public class RunManager {
             int newId = RunDAO.create(run, ownerId);
             run.setId(newId);
             cache.put(run.getId(), run);
+            HistoryRecord rec = new HistoryRecord(run.getExperimentId(), "run", run.getId(), "creation", null, "запуск создан", currentUserLogin());
+            HistoryDAO.save(rec);
+
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка добавления запуска", e);
         }
     }
 
     public void update(Run run) {
+        Run old = cache.get(run.getId());
+        if (old == null) throw new IllegalArgumentException("Запуск не найден");
         requireOwnership(run.getId());
+
+        List<HistoryRecord> changes = new ArrayList<>();
+        long expId = old.getExperimentId(); // эксперимент тот же
+
+        if (!old.getName().equals(run.getName())) {
+            changes.add(new HistoryRecord(expId, "run", run.getId(),
+                    "name", old.getName(), run.getName(), currentUserLogin()));
+        }
+        if (!old.getOperatorName().equals(run.getOperatorName())) {
+            changes.add(new HistoryRecord(expId, "run", run.getId(),
+                    "operator_name", old.getOperatorName(), run.getOperatorName(), currentUserLogin()));
+        }
+
         int ownerId = currentUserId();
         try {
             if (!RunDAO.update(run, ownerId))
                 throw new SecurityException("Запуск не найден или не принадлежит вам");
             cache.put(run.getId(), run);
+            for (HistoryRecord rec : changes) {
+                HistoryDAO.save(rec);
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка обновления", e);
         }
     }
 
     public void remove(long id) {
+        Run run = cache.get(id);
+        if (run == null) throw new IllegalArgumentException("Запуск #" + id + " не найден");
         requireOwnership(id);
+
+        long expId = run.getExperimentId();
         int ownerId = currentUserId();
         try {
+            // Запись об удалении
+            HistoryRecord deletionRecord = new HistoryRecord(
+                    expId,
+                    "run",
+                    id,
+                    "deletion",
+                    null,
+                    "Запуск удалён",
+                    currentUserLogin()
+            );
+            HistoryDAO.save(deletionRecord);
+
             if (!RunDAO.delete(id, ownerId))
                 throw new SecurityException("Запуск не найден");
             cache.remove(id);

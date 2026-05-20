@@ -1,7 +1,6 @@
 package ru.laba5.users;
 
 import ru.laba5.db.dao.UserDAO;
-import ru.laba5.users.User;
 import java.sql.SQLException;
 
 public class AuthService {

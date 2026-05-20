@@ -5,6 +5,8 @@ import ru.laba5.domain.Experiment;
 import ru.laba5.users.AuthService;
 import java.sql.SQLException;
 import java.util.*;
+import ru.laba5.db.dao.HistoryDAO;
+import ru.laba5.domain.HistoryRecord;
 
 public class ExperimentManager {
     private final Map<Long, Experiment> cache = new HashMap<>();
@@ -24,7 +26,6 @@ public class ExperimentManager {
             throw new RuntimeException("Ошибка загрузки экспериментов из БД", e);
         }
     }
-
     private int currentUserId() {
         return authService.getCurrentUserId();
     }
@@ -37,12 +38,10 @@ public class ExperimentManager {
         return new ArrayList<>(cache.values());
     }
 
-    // Метод для совместимости с GUI (возвращает null, если не найден)
     public Experiment findById(long id) {
         return cache.get(id);
     }
 
-    // Optional-версия для более безопасного кода
     public Optional<Experiment> findByIdOptional(long id) {
         return Optional.ofNullable(cache.get(id));
     }
@@ -64,27 +63,70 @@ public class ExperimentManager {
             experiment.setId(newId);
             experiment.setOwnerUsername(currentUserLogin());
             cache.put(experiment.getId(), experiment);
+
+            HistoryRecord rec = new HistoryRecord(
+                    experiment.getId(),
+                    "experiment",experiment.getId(), "creatoin",
+                    null,
+                    "Эксперимент создан",
+                    currentUserLogin()
+            );
+            HistoryDAO.save(rec);
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка добавления эксперимента", e);
         }
     }
-
     public void update(Experiment experiment) {
+        Experiment old = cache.get(experiment.getId());
+        if (old == null) throw new IllegalArgumentException("Эксперимент не найден");
         requireOwnership(experiment.getId());
+        List<HistoryRecord> changes = new ArrayList<>();
+
+        // Проверяем изменение названия
+        if (!old.getName().equals(experiment.getName())) {
+            changes.add(new HistoryRecord(experiment.getId(),"experiment",
+                    experiment.getId(),
+                    "name",
+                    old.getName(),
+                    experiment.getName(),
+                    currentUserLogin()
+            ));
+        }
+        if (!old.getDescription().equals(experiment.getDescription())){
+            changes.add(new HistoryRecord(experiment.getId(), "experiment", experiment.getId(), "description", old.getDescription(), experiment.getDescription(), currentUserLogin()));
+        }
+
         int ownerId = currentUserId();
         try {
             if (!ExperimentDAO.update(experiment, ownerId))
                 throw new SecurityException("Эксперимент не найден или не принадлежит вам");
             cache.put(experiment.getId(), experiment);
+            for (HistoryRecord rec : changes) {
+                HistoryDAO.save(rec);
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка обновления", e);
         }
     }
-
     public void remove(long id) {
+        Experiment exp = cache.get(id);
+        if (exp == null) throw new IllegalArgumentException("Эксперимент #" + id + " не найден");
         requireOwnership(id);
+
         int ownerId = currentUserId();
         try {
+            // Сохраняем запись об удалении в историю
+            HistoryRecord deletionRecord = new HistoryRecord(
+                    id,
+                    "experiment",
+                    id,
+                    "deletion",
+                    null,
+                    "Эксперимент удалён",
+                    currentUserLogin()
+            );
+            HistoryDAO.save(deletionRecord);
+
             if (!ExperimentDAO.delete(id, ownerId))
                 throw new SecurityException("Эксперимент не найден");
             cache.remove(id);

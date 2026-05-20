@@ -141,10 +141,13 @@ public class ResultTab extends VBox {
         Button addBtn = new Button("Добавить результат");
         addBtn.setOnAction(e -> showAddDialog());
 
+        Button editBtn = new Button("Редактировать");
+        editBtn.setOnAction(e -> showEditDialog());
+
         Button deleteBtn = new Button("Удалить результат");
         deleteBtn.setOnAction(e -> showDeleteDialog());
 
-        return new HBox(10, refreshBtn, addBtn, deleteBtn);
+        return new HBox(10, refreshBtn, addBtn, editBtn, deleteBtn);
     }
 
     public void refreshFilters() {
@@ -186,6 +189,7 @@ public class ResultTab extends VBox {
 
         data = FXCollections.observableArrayList(results);
         tableView.setItems(data);
+        tableView.refresh();
     }
 
     private void showAddDialog() {
@@ -235,6 +239,86 @@ public class ResultTab extends VBox {
 
         } catch (SecurityException e) {
             DialogHelper.showError("Ошибка прав", e.getMessage());
+        } catch (Exception e) {
+            DialogHelper.showError("Ошибка", e.getMessage());
+        }
+    }
+
+    private void showEditDialog() {
+        RunResult selected = tableView.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            DialogHelper.showError("Ошибка", "Выберите результат для редактирования");
+            return;
+        }
+
+        // Проверка прав через эксперимент
+        Run run = runManager.findById(selected.getRunId());
+        if (run == null) {
+            DialogHelper.showError("Ошибка", "Запуск не найден");
+            return;
+        }
+        Experiment experiment = experimentManager.findById(run.getExperimentId());
+        if (experiment == null || !experiment.getOwnerUsername().equals(currentUser)) {
+            DialogHelper.showError("Ошибка прав", "У вас нет прав на редактирование этого результата");
+            return;
+        }
+
+        // Порядок соответствует колонкам таблицы: Параметр, Значение, Единицы, Комментарий
+        String[] choices = {"параметр", "значение", "единицы", "комментарий"};
+        Optional<String> fieldResult = DialogHelper.showChoiceDialog(
+                "Редактирование результата",
+                "Выберите поле для изменения (результат #" + selected.getId() + ")",
+                choices);
+        if (!fieldResult.isPresent()) return; // пользователь нажал Cancel
+
+        try {
+            RunResult updated = null;
+            String field = fieldResult.get();
+
+            switch (field) {
+                case "параметр":
+                    Optional<MeasurementParam> newParam = askForParam();
+                    if (newParam.isPresent()) {
+                        updated = new RunResult(selected.getId(), selected.getRunId(), newParam.get(),
+                                selected.getValue(), selected.getUnit(), selected.getComment(),
+                                selected.getOwnerUsername(), selected.getCreatedAt());
+                    }
+                    break;
+                case "значение":
+                    Optional<Double> newValue = askForValue(selected.getParam());
+                    if (newValue.isPresent()) {
+                        updated = new RunResult(selected.getId(), selected.getRunId(), selected.getParam(),
+                                newValue.get(), selected.getUnit(), selected.getComment(),
+                                selected.getOwnerUsername(), selected.getCreatedAt());
+                    }
+                    break;
+                case "единицы":
+                    Optional<Units> newUnit = askForUnit();
+                    if (newUnit.isPresent()) {
+                        updated = new RunResult(selected.getId(), selected.getRunId(), selected.getParam(),
+                                selected.getValue(), newUnit.get().name(), selected.getComment(),
+                                selected.getOwnerUsername(), selected.getCreatedAt());
+                    }
+                    break;
+                case "комментарий":
+                    Optional<String> newComment = DialogHelper.showInputDialog(
+                            "Редактирование результата",
+                            "Введите новый комментарий",
+                            "Комментарий:");
+                    if (newComment.isPresent()) {
+                        updated = new RunResult(selected.getId(), selected.getRunId(), selected.getParam(),
+                                selected.getValue(), selected.getUnit(), newComment.get(),
+                                selected.getOwnerUsername(), selected.getCreatedAt());
+                    }
+                    break;
+            }
+
+            if (updated != null) {
+                resultManager.update(updated);
+                // Если update обновляет кэш (должно быть), то reload не нужен
+                refreshData();
+                DialogHelper.showInfo("Успех", "Результат обновлён");
+            }
         } catch (Exception e) {
             DialogHelper.showError("Ошибка", e.getMessage());
         }

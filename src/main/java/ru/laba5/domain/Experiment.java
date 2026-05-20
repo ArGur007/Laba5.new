@@ -34,7 +34,7 @@ public final class Experiment {
         this(id, name, description, ownerUsername, Instant.now(), Instant.now());
     }
 
-    // Конструктор для ЗАГРУЗКИ из базы данных (с ID)
+    // Конструктор для ЗАГРУЗКИ из базы данных (с ID)2
     public Experiment(long id, String name, String description, String ownerUsername, Instant createdAt, Instant updatedAt) {
         validateId(id);
         validateName(name);

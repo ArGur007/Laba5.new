@@ -1,10 +1,8 @@
 package ru.laba5.service;
 
+import ru.laba5.db.dao.HistoryDAO;
 import ru.laba5.db.dao.RunResultDAO;
-import ru.laba5.domain.Experiment;
-import ru.laba5.domain.MeasurementParam;
-import ru.laba5.domain.Run;
-import ru.laba5.domain.RunResult;
+import ru.laba5.domain.*;
 import ru.laba5.users.AuthService;
 import java.sql.SQLException;
 import java.util.*;
@@ -64,27 +62,77 @@ public class RunResultManager {
             result.setId(newId);
             result.setOwnerUsername(currentUserLogin());
             cache.put(result.getId(), result);
+            Run run = runManager.findById(result.getRunId());
+            long expId = run != null ? run.getExperimentId() : 0;
+            HistoryRecord rec = new HistoryRecord(
+                    expId, "result",result.getId(),"creation", null, "Результат добавлен",currentUserLogin()
+            );
+            HistoryDAO.save(rec);
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка добавления результата", e);
         }
     }
 
     public void update(RunResult result) {
+        RunResult old = cache.get(result.getId());
+        if (old == null) throw new IllegalArgumentException("Результат не найден");
         requireResultOwnership(result.getId());
+
+        List<HistoryRecord> changes = new ArrayList<>();
+        Run run = runManager.findById(result.getRunId());
+        long expId = run != null ? run.getExperimentId() : 0;
+
+        if (old.getValue() != result.getValue()) {
+            changes.add(new HistoryRecord(expId, "result", result.getId(),
+                    "value", String.valueOf(old.getValue()), String.valueOf(result.getValue()), currentUserLogin()));
+        }
+        if (!old.getComment().equals(result.getComment())) {
+            changes.add(new HistoryRecord(expId, "result", result.getId(),
+                    "comment", old.getComment(), result.getComment(), currentUserLogin()));
+        }
+        if (old.getParam() != result.getParam()) {
+            changes.add(new HistoryRecord(expId, "result", result.getId(),
+                    "param", old.getParam().name(), result.getParam().name(), currentUserLogin()));
+        }
+        if (!old.getUnit().equals(result.getUnit())) {
+            changes.add(new HistoryRecord(expId, "result", result.getId(),
+                    "unit", old.getUnit(), result.getUnit(), currentUserLogin()));
+        }
+
         int ownerId = currentUserId();
         try {
             if (!RunResultDAO.update(result, ownerId))
                 throw new SecurityException("Результат не найден или не принадлежит вам");
             cache.put(result.getId(), result);
+            for (HistoryRecord rec : changes) {
+                HistoryDAO.save(rec);
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Ошибка обновления", e);
         }
     }
 
     public void remove(long id) {
+        RunResult result = cache.get(id);
+        if (result == null) throw new IllegalArgumentException("Результат #" + id + " не найден");
         requireResultOwnership(id);
+
+        Run run = runManager.findById(result.getRunId());
+        long expId = run != null ? run.getExperimentId() : 0;
         int ownerId = currentUserId();
         try {
+            // Запись об удалении
+            HistoryRecord deletionRecord = new HistoryRecord(
+                    expId,
+                    "result",
+                    id,
+                    "deletion",
+                    null,
+                    "Результат удалён",
+                    currentUserLogin()
+            );
+            HistoryDAO.save(deletionRecord);
+
             if (!RunResultDAO.delete(id, ownerId))
                 throw new SecurityException("Результат не найден");
             cache.remove(id);
@@ -92,7 +140,6 @@ public class RunResultManager {
             throw new RuntimeException("Ошибка удаления", e);
         }
     }
-
     public void clear() {
         int ownerId = currentUserId();
         try {

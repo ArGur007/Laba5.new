@@ -48,13 +48,15 @@ public class RunResultDAO {
     }
 
     public static boolean update(RunResult result, int ownerId) throws SQLException {
-        String sql = "UPDATE run_results SET value=?, comment=? WHERE id=? AND owner_id=?";
+        String sql = "UPDATE run_results SET value=?, comment=?, param=?, unit=? WHERE id=? AND owner_id=?";
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setDouble(1, result.getValue());
             stmt.setString(2, result.getComment());
-            stmt.setLong(3, result.getId());
-            stmt.setInt(4, ownerId);
+            stmt.setString(3, result.getParam().name());   // сохраняем параметр
+            stmt.setString(4, result.getUnit());            // сохраняем единицы
+            stmt.setLong(5, result.getId());
+            stmt.setInt(6, ownerId);
             return stmt.executeUpdate() > 0;
         }
     }
